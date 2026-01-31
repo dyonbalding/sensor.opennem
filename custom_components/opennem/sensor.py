@@ -1,4 +1,5 @@
 """OpenNEM Sensor"""
+
 import logging
 
 import voluptuous as vol
@@ -60,8 +61,8 @@ class OpenNEMSensor(CoordinatorEntity):
 
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, self.coordinator.config.entry_id)},
-            #default_name=f"{DEFAULT_NAME} {self._region.upper()}",
-            #default_mode=f"{self._region.upper()}",
+            # default_name=f"{DEFAULT_NAME} {self._region.upper()}",
+            # default_mode=f"{self._region.upper()}",
             name=self._name,
             entry_type=DeviceEntryType.SERVICE,
             configuration_url="https://opennem.org.au/",
@@ -117,8 +118,7 @@ class OpenNEMSensor(CoordinatorEntity):
             return attrs
         attrs[ATTR_ATTRIBUTION] = ATTRIBUTION
         attrs["region"] = self._region
-        for val in self.coordinator.data:
-            attrs[val] = self.coordinator.data[val]
+        attrs.update(self.coordinator.data)
         return attrs
 
     @property

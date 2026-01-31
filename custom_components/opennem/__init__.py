@@ -1,4 +1,5 @@
-""" OpenNEM """
+"""OpenNEM"""
+
 import logging
 import datetime
 
@@ -16,8 +17,6 @@ from homeassistant.helpers import config_validation as cv
 from .config_flow import configured_instances
 from .const import (
     API_ENDPOINT,
-    API_ENDPOINT_EM,
-    API_ENDPOINT_FLOW,
     API_ENDPOINT_NEM,
     API_ENDPOINT_WA,
     API_ENDPOINT_AU,
@@ -26,6 +25,16 @@ from .const import (
     DOMAIN,
     PLATFORMS,
     VERSION,
+    # DEFAULT_VALUES,
+    FOSSIL_FUEL_POWER,
+    RENEWABLE_POWER,
+    CURTAILMENT_THRESHOLD,
+)
+
+KNOWN_FUEL_TYPES = (
+    FOSSIL_FUEL_POWER
+    + RENEWABLE_POWER
+    + ["imports", "exports", "battery_charging", "battery_discharging", "pumps"]
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -111,39 +120,6 @@ class OpenNEMDataUpdateCoordinator(DataUpdateCoordinator):
         self.hass = hass
         self._region = config.data[CONF_REGION]
         self._config_entry_id = config.entry_id
-        self._values = {
-            "bioenergy_biomass": 0,
-            "bioenergy_biogas": 0,
-            "coal_black": 0,
-            "coal_brown": 0,
-            "distillate": 0,
-            "gas_ccgt": 0,
-            "gas_ocgt": 0,
-            "gas_recip": 0,
-            "gas_steam": 0,
-            "gas_wcmg": 0,
-            "hydro": 0,
-            "pumps": 0,
-            "solar_utility": 0,
-            "solar_rooftop": 0,
-            "wind": 0,
-            "battery_discharging": 0,
-            "battery_charging": 0,
-            "exports": 0,
-            "imports": 0,
-            "price": 0,
-            "demand": 0,
-            "generation": 0,
-            "temperature": 0,
-            "fossilfuel": 0,
-            "renewables": 0,
-            "flow_NSW": 0,
-            "flow_QLD": 0,
-            "flow_SA": 0,
-            "flow_TAS": 0,
-            "flow_VIC": 0,
-            "last_update": None,
-        }
         self._interval = DEFAULT_SCAN_INTERVAL
         _LOGGER.debug(
             "OpenNEM [%s1]: Data will be updated every %s", self._region, self._interval
@@ -161,42 +137,8 @@ class OpenNEMDataUpdateCoordinator(DataUpdateCoordinator):
         """Get Latest Date and Update State"""
 
         data = None
-        emdata = None
-        fldata = None
-        self._values = {
-            "bioenergy_biomass": 0,
-            "bioenergy_biogas": 0,
-            "coal_black": 0,
-            "coal_brown": 0,
-            "distillate": 0,
-            "gas_ccgt": 0,
-            "gas_ocgt": 0,
-            "gas_recip": 0,
-            "gas_steam": 0,
-            "gas_wcmg": 0,
-            "hydro": 0,
-            "pumps": 0,
-            "solar_utility": 0,
-            "solar_rooftop": 0,
-            "wind": 0,
-            "battery_discharging": 0,
-            "battery_charging": 0,
-            "exports": 0,
-            "imports": 0,
-            "price": 0,
-            "demand": 0,
-            "generation": 0,
-            "temperature": 0,
-            "fossilfuel": 0,
-            "renewables": 0,
-            "flow_NSW": 0,
-            "flow_QLD": 0,
-            "flow_SA": 0,
-            "flow_TAS": 0,
-            "flow_VIC": 0,
-            "last_update": None,
-        }
-        _LOGGER.debug("OpenNEM [%s]: Default Values - %s", self._region, self._values)
+        attrs = {}
+        _LOGGER.debug("OpenNEM [%s]: Default Values - %s", self._region, attrs)
 
         region = self._region + "1"
         if region == "nem1":
@@ -215,189 +157,143 @@ class OpenNEMDataUpdateCoordinator(DataUpdateCoordinator):
                 else:
                     _LOGGER.error("OpenNEM [%s]: Issue getting data", region)
 
-            # Emission Factor
-#             async with session.get(API_ENDPOINT_EM) as emremotedata:
-#                 _LOGGER.debug(
-#                     "OpenNEM [%s]: Getting Emissions State from %s",
-#                     region,
-#                     API_ENDPOINT_EM,
-#                 )
-#                 if emremotedata.status == 200:
-#                     edata = await emremotedata.json()
-#                 else:
-#                     _LOGGER.error("OpenNEM [%s]: Issue getting emissions data", region)
-
-            # Flow from other Regions
-#            async with session.get(API_ENDPOINT_FLOW) as flremotedata:
-#                _LOGGER.debug(
-#                    "OpenNEM [%s]: Getting Flow State from %s",
-#                    region,
-#                    API_ENDPOINT_FLOW,
-#                )
-#                if flremotedata.status == 200:
-#                    fldata = await flremotedata.json()
-#                else:
-#                    _LOGGER.error("OpenNEM [%s]: Issue getting flow data", region)
-
         if data is not None:
             _LOGGER.debug(
                 "OpenNEM [%s]: Data Downloaded, Commencing Processing", region
             )
-            attrs = {}
-            emdata = None
-            ffvalue = None
-            renvalue = None
-            emvalue = None
-            genvalue = None
-            genvsdemand = None
-            value = None
-            regiondata = []
 
-            _LOGGER.debug("OpenNEM [%s]: Values Before - %s", region, self._values)
+            attrs["emission_intensity"] = 0.0
+            attrs["fossilfuel"] = 0.0
+            attrs["renewables"] = 0.0
+            emission_factors = {}
+
+            _LOGGER.debug("OpenNEM [%s]: Values Before - %s", region, attrs)
+
+            # TODO produce a total curtailment value
 
             for row in data["data"]:
-                if row["type"] == "power":
-                    ftype = row["code"]
-                else:
-                    ftype = row["type"]
-
-                # units = row["units"]
-                # last_update = row["history"]["last"]
-
-                if (row["history"]["data"][-1] != 0 or row["history"]["data"][-1] == None):
-                    value = row["history"]["data"][-1]
-                elif (row["history"]["data"][-2] != 0 or row["history"]["data"][-2] == None):
-                    value = row["history"]["data"][-2]
-                else:
-                    value = row["history"]["data"][-3]
-
-                if ftype == "imports":
-                    value = abs(value)
-                if ftype == "exports":
-                    value = -abs(value)
-                if ftype == "battery_charging":
-                    value = -abs(value)
-
+                value = self._last_value_from_data(row["history"]["data"])
                 if value is None:
-                    self._values[ftype] = 0.0
-                else:
-                    self._values[ftype] = round(value, 2)
+                    value = 0.0
 
-                regiondata.append(ftype)
-                value = None
-                ftype = None
+                _LOGGER.debug(
+                    "[%s]: id: %s, type: %s, code: %s, value: %f",
+                    region,
+                    row["id"],
+                    row["type"],
+                    row.get("code"),
+                    value,
+                )
 
-            ffvalue = None
-            ffvalue = (
-                self._values["coal_black"]
-                + self._values["distillate"]
-                + self._values["coal_brown"]
-                + self._values["gas_ccgt"]
-                + self._values["gas_ocgt"]
-                + self._values["gas_recip"]
-                + self._values["gas_steam"]
-                + self._values["gas_wcmg"]
-            )
-            if ffvalue:
-                self._values["fossilfuel"] = round(ffvalue, 2)
-            else:
-                self._values["fossilfuel"] = 0
-            regiondata.append("fossilfuel")
-            ffvalue = None
+                match row["type"]:
+                    case "power":
+                        fuel = row["code"]
+                        if fuel == "NEM":
+                            if ".curtailment." in row["id"]:
+                                # the fuel_tech key is of the form curtailment_{type}
+                                attrs[row["fuel_tech"]] = round(value, 2)
+                            elif ".demand" in row["id"]:
+                                attrs["demand"] = round(value, 2)
 
-            renvalue = None
-            renvalue = (
-                self._values["bioenergy_biomass"]
-                + self._values["bioenergy_biogas"]
-                + self._values["hydro"]
-                + self._values["solar_utility"]
-                + self._values["wind"]
-                + self._values["solar_rooftop"]
-            )
-            if renvalue:
-                self._values["renewables"] = round(renvalue, 2)
-            else:
-                self._values["renewables"] = 0
-            regiondata.append("renewables")
-            renvalue = None
+                            else:
+                                # ignore others
+                                _LOGGER.debug("ignoring NEM with code=%s", row["code"])
+                                pass
+                        else:
+                            # power generation/import/export
+                            if fuel in ("exports", "battery_charging", "pumps"):
+                                value = -abs(value)
 
-            genvalue = None
-            genvalue = self._values["fossilfuel"] + self._values["renewables"]
+                            attrs[fuel] = round(value, 2)
+
+                            if fuel not in KNOWN_FUEL_TYPES:
+                                _LOGGER.warning(
+                                    "[%s] unknown fuel type: %s", region, fuel
+                                )
+
+                    # we calculate this from emissions_factor below in favour of using these values directly
+                    # case "emissions":
+                    #     if row["code"] != "exports":
+                    #         attrs["emissions"] += value
+                    case "emissions_factor":
+                        emission_factors[row["code"]] = value
+                    case "price":
+                        attrs["price"] = value
+
+            fossil_power = sum([attrs.get(power) or 0 for power in FOSSIL_FUEL_POWER])
+            attrs["fossilfuel"] = round(fossil_power, 2)
+
+            renewable_power = sum([attrs.get(power) or 0 for power in RENEWABLE_POWER])
+            attrs["renewables"] = round(renewable_power, 2)
+
+            genvalue = attrs["fossilfuel"] + attrs["renewables"]
             if genvalue:
-                self._values["generation"] = round(genvalue, 2)
-                self._values["state"] = round(genvalue, 2)
+                attrs["generation"] = round(genvalue, 2)
+                attrs["state"] = round(genvalue, 2)
             else:
-                self._values["generation"] = 0
-                self._values["state"] = 0
-            regiondata.append("generation")
-            genvalue = None
+                attrs["generation"] = 0
+                attrs["state"] = 0
 
             genvsdemand = None
-            if region == "wa1":
-                pass
-            else:
-                genvsdemand = self._values["generation"] - self._values["demand"]
+            if region != "wa1" and "demand" in attrs:
+                genvsdemand = attrs["generation"] - attrs["demand"]
                 if genvsdemand:
-                    self._values["genvsdemand"] = round(genvsdemand, 2)
+                    attrs["genvsdemand"] = round(genvsdemand, 2)
                 else:
-                    self._values["genvsdemand"] = 0
-                regiondata.append("genvsdemand")
-                genvsdemand = None
+                    attrs["genvsdemand"] = 0
 
-#             # Emission Factor
-#             try:
-#                 edata
-#             except NameError:
-#                 pass
-#             else:
-#                 if region == "wa1":
-#                     pass
-#                 elif region == "au":
-#                     pass
-#                 else:
-#                     if edata is not None:
-#                         if edata["response_status"] == "ERROR":
-#                             self._values["emissions_factor"] = 0
-#                             regiondata.append("emissions_factor")
-#                             _LOGGER.debug("OpenNEM [%s]: Error reported on emissions factor data", region)
-#                         else:
-#                             for emrow in edata["data"]:
-#                                 if region.upper() in emrow["code"]:
-#                                     emvalue = emrow["history"]["data"][-1]
-#                                     if emvalue == None:
-#                                         emvalue = 0
-#                                     self._values["emissions_factor"] = round(emvalue, 4)
-#                                     regiondata.append("emissions_factor")
-#                                     emvalue = None
-#                     else:
-#                         _LOGGER.debug("OpenNEM [%s]: No Emissions Data Found", region)
+            # calculate kg/kWh CO2 equiv rate
+            emission_intensity = 0.0
+            for fuel, val in emission_factors.items():
+                if fuel in ("exports"):
+                    # we don't consider cost of exports when considering cost of generated power
+                    continue
+                # most fuel types appear to divide the emissions factor by 12 for the 5-minute
+                # inteval data. but this does not appear to occur for imports(?!)
+                if fuel == "imports":
+                    emission_factor = val
+                else:
+                    emission_factor = val * 12
+                # _LOGGER.debug(
+                #     "[%s] emission factor for %s is %f kg/kWh",
+                #     region,
+                #     fuel,
+                #     emission_factor,
+                # )
+                emission_intensity += (
+                    attrs[fuel] / attrs["generation"]
+                ) * emission_factor
+            attrs["emission_intensity"] = round(emission_intensity, 3)
 
-            # Flow from other region
-#            if fldata is not None:
-#                for frow in fldata["data"]:
-#                    fcode = frow["code"]
-#                    fregion = fcode.split("->")
-#                    if region.upper() in fregion:
-#                        fregion.remove(region.upper())
-#                        fregionto = fregion[0].replace("1", "")
-#                        value = frow["history"]["data"][-1]
-#                        if value == None:
-#                            value = 0
-#                        self._values["flow_" + fregionto] = round(value, 4)
-#                        regiondata.append("flow_" + fregionto)
-#                    fregionto = None
-#                    value = None
-#            else:
-#                _LOGGER.debug("OpenNEM [%s]: No Flow Data Found", region)
+            # total curtailment
+            attrs["curtailment"] = sum(
+                [attrs[fuel] for fuel in attrs.keys() if "curtailment_" in fuel]
+            )
+            if attrs["renewables"] > 0:
+                ratio_curtailed = attrs["curtailment"] / attrs["renewables"]
+            else:
+                ratio_curtailed = 0.0
+            _LOGGER.debug(
+                "[%s] %f of renewables are curtailed", region, round(ratio_curtailed, 2)
+            )
+
+            # if curtailment is non-trivial, then we can consider consumed electricity as
+            # "free" from direct generation emissions
+            if ratio_curtailed > CURTAILMENT_THRESHOLD:
+                attrs["effective_emission_intensity"] = 0.0
+            else:
+                attrs["effective_emission_intensity"] = attrs["emission_intensity"]
+
+            _LOGGER.debug("received data current at %s", data["created_at"])
 
             if region == "wa1":
-                self._values["last_update"] = dt_util.as_utc(
+                attrs["last_update"] = dt_util.as_utc(
                     datetime.datetime.strptime(
                         str(data["created_at"]), "%Y-%m-%dT%H:%M:%S+08:00"
                     )
                 )
             else:
-                self._values["last_update"] = dt_util.as_utc(
+                attrs["last_update"] = dt_util.as_utc(
                     datetime.datetime.strptime(
                         str(data["created_at"]), "%Y-%m-%dT%H:%M:%S+10:00"
                     )
@@ -405,52 +301,13 @@ class OpenNEMDataUpdateCoordinator(DataUpdateCoordinator):
         else:
             _LOGGER.debug("OpenNEM [%s]: No Data Found", region)
 
-        _LOGGER.debug("OpenNEM [%s]: Values After - %s", region, self._values)
-
-        attrs = {}
-        regiondata.append("last_update")
-        _LOGGER.debug("OpenNEM [%s] Region Attrs: %s", region, regiondata)
-        for val in self._values:
-            if val in regiondata:
-                attrs[val] = self._values[val]
-            else:
-                pass
         _LOGGER.debug("OpenNEM [%s]: Values to pass to Sensor: %s", region, attrs)
-
-        regiondata = []
-        self._values = {
-            "bioenergy_biomass": 0,
-            "bioenergy_biogas": 0,
-            "coal_black": 0,
-            "coal_brown": 0,
-            "distillate": 0,
-            "gas_ccgt": 0,
-            "gas_ocgt": 0,
-            "gas_recip": 0,
-            "gas_steam": 0,
-            "gas_wcmg": 0,
-            "hydro": 0,
-            "pumps": 0,
-            "solar_utility": 0,
-            "solar_rooftop": 0,
-            "wind": 0,
-            "battery_discharging": 0,
-            "battery_charging": 0,
-            "exports": 0,
-            "imports": 0,
-            "price": 0,
-            "demand": 0,
-            "generation": 0,
-            "temperature": 0,
-            "fossilfuel": 0,
-            "renewables": 0,
-            "flow_NSW": 0,
-            "flow_QLD": 0,
-            "flow_SA": 0,
-            "flow_TAS": 0,
-            "flow_VIC": 0,
-            "last_update": None,
-        }
-        _LOGGER.debug("OpenNEM [%s]: Temp - %s", region, self._values)
-        _LOGGER.debug("OpenNEM [%s]: Values After - %s", region, self._values)
         return attrs
+
+    def _last_value_from_data(self, data):
+        if data[-1] is not None:
+            return data[-1]
+        elif data[-2] is not None:
+            return data[-2]
+        else:
+            return data[-3]
