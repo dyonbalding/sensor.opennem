@@ -25,7 +25,6 @@ from .const import (
     DOMAIN,
     PLATFORMS,
     VERSION,
-    # DEFAULT_VALUES,
     FOSSIL_FUEL_POWER,
     RENEWABLE_POWER,
     CURTAILMENT_THRESHOLD,
@@ -169,8 +168,6 @@ class OpenNEMDataUpdateCoordinator(DataUpdateCoordinator):
 
             _LOGGER.debug("OpenNEM [%s]: Values Before - %s", region, attrs)
 
-            # TODO produce a total curtailment value
-
             for row in data["data"]:
                 value = self._last_value_from_data(row["history"]["data"])
                 if value is None:
@@ -254,12 +251,6 @@ class OpenNEMDataUpdateCoordinator(DataUpdateCoordinator):
                     emission_factor = val
                 else:
                     emission_factor = val * 12
-                # _LOGGER.debug(
-                #     "[%s] emission factor for %s is %f kg/kWh",
-                #     region,
-                #     fuel,
-                #     emission_factor,
-                # )
                 emission_intensity += (
                     attrs[fuel] / attrs["generation"]
                 ) * emission_factor
